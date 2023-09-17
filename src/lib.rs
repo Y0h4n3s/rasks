@@ -65,8 +65,8 @@ impl Executor for MemoryExecutor {
     {
         self.tasks.push(thread::spawn(move || {
             let mut schedule = schedule;
-            while let Ok(_) =  schedule.next_tick() {
-                        task(&args)?;
+            while let Ok(_) = schedule.next_tick() {
+                task(&args)?;
             }
             Ok::<(), anyhow::Error>(())
         }));
