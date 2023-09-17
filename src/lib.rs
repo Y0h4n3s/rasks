@@ -29,6 +29,7 @@ pub trait Executor {
     fn join(self) -> Result<()>;
 }
 
+#[derive(Default)]
 pub struct MemoryExecutor {
     tasks: Vec<JoinHandle<Result<()>>>,
 }
@@ -64,15 +65,8 @@ impl Executor for MemoryExecutor {
     {
         self.tasks.push(thread::spawn(move || {
             let mut schedule = schedule;
-            loop {
-                match schedule.next_tick() {
-                    Ok(_) => {
+            while let Ok(_) =  schedule.next_tick() {
                         task(&args)?;
-                    }
-                    Err(_) => {
-                        break;
-                    }
-                }
             }
             Ok::<(), anyhow::Error>(())
         }));
