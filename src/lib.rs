@@ -27,11 +27,7 @@ pub trait Executor {
     where
         T: Fn(&Vec<Arg>) -> Result<()> + Send + Sync + 'static;
     fn join(self) -> Result<()>;
-
 }
-
-
-
 
 pub struct MemoryExecutor {
     tasks: Vec<JoinHandle<Result<()>>>,
@@ -88,15 +84,13 @@ impl Executor for MemoryExecutor {
         }
         Ok(())
     }
-
-
 }
 
 #[cfg(test)]
 mod test {
+    use crate::{Arg, ExecutionSchedule, Executor, MemoryExecutor, Result};
     use std::sync::Arc;
     use std::time::Duration;
-    use crate::{Arg, MemoryExecutor, Executor, ExecutionSchedule, Result};
 
     #[derive(Clone)]
     pub struct Arg1 {
