@@ -1,6 +1,6 @@
 [package]
 name = "rasks"
-license = "MIT License"
+license = "MIT"
 description = "Scheduled background tasks"
 homepage = "https://github.com/Y0h4n3s/rasks"
 repository = "https://github.com/Y0h4n3s/rasks"
