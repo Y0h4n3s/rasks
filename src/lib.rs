@@ -83,7 +83,7 @@ impl Executor for MemoryExecutor {
 #[cfg(test)]
 mod test {
     use crate::{Arg, ExecutionSchedule, Executor, MemoryExecutor, Result};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     #[derive(Clone)]
@@ -94,6 +94,36 @@ mod test {
     #[derive(Clone)]
     pub struct Arg2 {
         pub a: i32,
+    }
+
+    #[test]
+    fn memory_executor_mutex_arg() {
+        let mut executor = MemoryExecutor::new();
+
+        let task = |args: &Vec<Arg>| {
+            // downcast your args
+            if let (Some(arg1), Some(_arg2)) = (
+                args[0].0.downcast_ref::<Arc<Mutex<String>>>(),
+                args[1].0.downcast_ref::<u32>()) {
+                // execute your tasks logic here
+                let mut arg = arg1.lock().expect("poisoned mutex");
+                *arg = "new".to_string();
+            }
+
+            // task closures should return anyhow::Result<()>
+            Ok(())
+        };
+
+        let clonable_state = Arc::new(Mutex::new("old"));
+        executor.launch(
+            task,
+            vec![
+                Arg(Box::new(clonable_state)),
+                Arg(Box::new(1))
+            ],
+            ExecutionSchedule::Every(Duration::from_secs(10))
+        );
+
     }
     #[test]
     fn memory_executor() {

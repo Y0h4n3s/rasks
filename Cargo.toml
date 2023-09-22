@@ -1,7 +1,13 @@
 [package]
 name = "rasks"
+license = "MIT License"
+description = "Scheduled background tasks"
+homepage = "https://github.com/Y0h4n3s/rasks"
+repository = "https://github.com/Y0h4n3s/rasks"
+readme = "README.md"
 version = "0.1.0"
 edition = "2021"
+keywords = ["tasks", "multi-threading", "background"]
 
 [dependencies]
 anyhow = "1.0.75"
