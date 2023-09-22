@@ -20,6 +20,9 @@ pub enum Error {
 
     #[error("A task with the same id already exists")]
     DuplicateId,
+
+    #[error("there is no task with id {0}")]
+    UnknownId(String),
 }
 
 pub struct Arg(Box<dyn Any + Send + Sync>);
@@ -39,6 +42,9 @@ pub trait Executor {
     ) -> Result<String>
     where
         T: Fn(&[Arg]) -> Result<R> + Send + Sync + 'static;
+
+    fn join_task(&mut self, task_id: &str) -> Result<()>;
+
     fn join(self) -> Result<()>;
 }
 
@@ -57,7 +63,7 @@ pub trait AsyncExecutor {
             + Sync
             + 'static;
 
-    async fn join_task(&self, task_id: &str) -> Result<()>;
+    async fn join_task(&mut self, task_id: &str) -> Result<()>;
     async fn join(self) -> Result<()>;
 }
 
@@ -152,6 +158,16 @@ impl Executor for MemoryExecutor {
         Ok(task_id)
     }
 
+    // TODO: Handle errors better here
+    fn join_task(&mut self, task_id: &str) -> Result<()> {
+        if self.tasks.contains_key(task_id) {
+            return Err(Error::UnknownId(task_id.to_string()).into());
+        }
+        if let Some(task) = self.tasks.remove(task_id) {
+            task.join().unwrap().unwrap()
+        }
+        Ok(())
+    }
     fn join(self) -> Result<()> {
         for (_, task) in self.tasks {
             task.join().unwrap().unwrap()
@@ -210,12 +226,18 @@ impl AsyncExecutor for AsyncMemoryExecutor {
         Ok(task_id)
     }
 
-    async fn join_task(&self, _task_id: &str) -> Result<()> {
-        unimplemented!()
+    async fn join_task(&mut self, task_id: &str) -> Result<()> {
+        if self.tasks.contains_key(task_id) {
+            return Err(Error::UnknownId(task_id.to_string()).into());
+        }
+        if let Some(task) = self.tasks.remove(task_id) {
+            task.await??
+        }
+        Ok(())
     }
     async fn join(self) -> Result<()> {
         for (_, task) in self.tasks {
-            task.await.unwrap().unwrap()
+            task.await??
         }
         Ok(())
     }
