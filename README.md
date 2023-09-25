@@ -11,8 +11,7 @@ rasks = "0.2.0"
 # Usage
 
 ```rust
-use std::collections::HashMap;
-use rasks::{Arg, ExecutionSchedule, Executor, MemoryExecutor, Result};
+use rasks::{ExecutionSchedule, Executor, MemoryExecutor};
 
 
 pub struct Arg1 {
@@ -22,30 +21,55 @@ pub struct Arg1 {
 fn main() {
     let mut executor = MemoryExecutor::new();
 
-    let task = |args: &Vec<Arg>| {
-        // downcast your args
-        if let (Some(mut arg1), Ok(_arg2)) = (
-            args[0].0.downcast_ref::<Arc<Mutex<Arg1>>>(),
-            args[1].0.downcast::<u32>()) {
-            // execute your tasks logic here
-            let arg = arg1.lock().expect("poisoned mutex");
-            *arg = "new".to_string();
-        }
+    let task = |(arg1, num): &(Arc<Mutex<&str>>, u32)| {
+        let mut arg = arg1.lock().expect("poisoned mutex");
+        *arg = "new";
 
         // task closures should return anyhow::Result<()>
         Ok(())
     };
 
-    let clonable_state = Arc::new(Mutex::new(Arg1{a: 1}));
-    executor.launch(
-        task,
-        vec![
-            Arg(Box::new(clonable_state)),
-            Arg(Box::new(1))
-        ],
-        ExecutionSchedule::Every(Duration::from_secs(10))
-    );
+    let clonable_state = Arc::new(Mutex::new("old"));
+    let task_id = executor
+        .launch(
+            task,
+            (clonable_state, 1),
+            ExecutionSchedule::Every(Duration::from_secs(10)),
+            None,
+        )
+        .unwrap();
+    executor.join_task(&task_id).unwrap()
+}
+```
 
-    executor.join().unwrap()
+## Async
+If your app is running on the tokio runtime you can use the async executor
+```rust
+use rasks::{BoxPinnedFuture, ExecutionSchedule, AsyncExecutor, AsyncMemoryExecutor, Result};
+
+#[tokio::main]
+async fn main() {
+    let mut executor = AsyncMemoryExecutor::new();
+    fn task1((arg1, arg2): &(Arc<Arg1>, Arg2)) -> BoxPinnedFuture<'_> {
+        Box::pin(async {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            assert_eq!(arg1.a, 10);
+            assert_eq!(arg2.a, 20);
+            Ok(())
+        })
+    }
+
+    let task_id = executor
+        .launch(
+            task1,
+            (Arc::new(Arg1 { a: 10 }), Arg2 { a: 20 }),
+            ExecutionSchedule::Once(Duration::from_secs(2), false),
+            None,
+        )
+        .await
+        .unwrap();
+
+    executor.join_task(&task_id).await.unwrap();
+
 }
 ```

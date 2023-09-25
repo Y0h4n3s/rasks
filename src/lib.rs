@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -25,23 +24,22 @@ pub enum Error {
     UnknownId(String),
 }
 
-pub struct Arg(Box<dyn Any + Send + Sync>);
-
 pub trait ExecutionResult {
     type Type;
     fn get(&self) -> Self::Type;
 }
 
 pub trait Executor {
-    fn launch<T, R>(
+    fn launch<T, A>(
         &mut self,
         task: T,
-        args: Vec<Arg>,
+        args: A,
         schedule: ExecutionSchedule,
         id: Option<&str>,
     ) -> Result<String>
     where
-        T: Fn(&[Arg]) -> Result<R> + Send + Sync + 'static;
+        A: Send + 'static,
+        T: Fn(&A) -> Result<()> + Send + Sync + 'static;
 
     fn join_task(&mut self, task_id: &str) -> Result<()>;
 
@@ -50,15 +48,17 @@ pub trait Executor {
 
 #[async_trait::async_trait]
 pub trait AsyncExecutor {
-    async fn launch<T, R>(
+    async fn launch<T, A>(
         &mut self,
         task: T,
-        args: Vec<Arg>,
+        args: A,
         schedule: ExecutionSchedule,
         id: Option<&str>,
     ) -> Result<String>
     where
-        T: Fn(&[Arg]) -> Pin<Box<dyn Future<Output = Result<R>> + Send + Sync + '_>>
+        A: Send + Sync + 'static,
+
+        T: Fn(&A) -> Pin<Box<dyn Future<Output = Result<()>> + Send + Sync + '_>>
             + Send
             + Sync
             + 'static;
@@ -114,15 +114,16 @@ impl ExecutionSchedule {
 }
 
 impl Executor for MemoryExecutor {
-    fn launch<T, R>(
+    fn launch<T, A>(
         &mut self,
         task: T,
-        args: Vec<Arg>,
+        args: A,
         schedule: ExecutionSchedule,
         id: Option<&str>,
     ) -> Result<String>
     where
-        T: Fn(&[Arg]) -> Result<R> + Send + Sync + 'static,
+        A: Send + 'static,
+        T: Fn(&A) -> Result<()> + Send + Sync + 'static,
     {
         let task_id = if let Some(id) = id {
             if self.tasks.contains_key(id) {
@@ -150,7 +151,7 @@ impl Executor for MemoryExecutor {
             thread::spawn(move || {
                 let mut schedule = schedule;
                 while schedule.next_tick().is_ok() {
-                    task(args.as_slice())?;
+                    task(&args)?;
                 }
                 Ok::<(), anyhow::Error>(())
             }),
@@ -160,7 +161,7 @@ impl Executor for MemoryExecutor {
 
     // TODO: Handle errors better here
     fn join_task(&mut self, task_id: &str) -> Result<()> {
-        if self.tasks.contains_key(task_id) {
+        if !self.tasks.contains_key(task_id) {
             return Err(Error::UnknownId(task_id.to_string()).into());
         }
         if let Some(task) = self.tasks.remove(task_id) {
@@ -178,15 +179,16 @@ impl Executor for MemoryExecutor {
 
 #[async_trait::async_trait]
 impl AsyncExecutor for AsyncMemoryExecutor {
-    async fn launch<T, R>(
+    async fn launch<T, A>(
         &mut self,
         task: T,
-        args: Vec<Arg>,
+        args: A,
         schedule: ExecutionSchedule,
         id: Option<&str>,
     ) -> Result<String>
     where
-        T: Fn(&[Arg]) -> Pin<Box<dyn Future<Output = Result<R>> + Send + Sync + '_>>
+        A: Send + Sync + 'static,
+        T: Fn(&A) -> Pin<Box<dyn Future<Output = Result<()>> + Send + Sync + '_>>
             + Send
             + Sync
             + 'static,
@@ -227,7 +229,7 @@ impl AsyncExecutor for AsyncMemoryExecutor {
     }
 
     async fn join_task(&mut self, task_id: &str) -> Result<()> {
-        if self.tasks.contains_key(task_id) {
+        if !self.tasks.contains_key(task_id) {
             return Err(Error::UnknownId(task_id.to_string()).into());
         }
         if let Some(task) = self.tasks.remove(task_id) {
@@ -243,12 +245,12 @@ impl AsyncExecutor for AsyncMemoryExecutor {
     }
 }
 
-pub type BoxPinnedFuture<'a, R> = Pin<Box<dyn Future<Output = R> + Send + Sync + 'a>>;
+pub type BoxPinnedFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + Sync + 'a>>;
 
 #[cfg(test)]
 mod test {
     use crate::{
-        Arg, AsyncExecutor, AsyncMemoryExecutor, BoxPinnedFuture, ExecutionSchedule, Executor,
+        AsyncExecutor, AsyncMemoryExecutor, BoxPinnedFuture, ExecutionSchedule, Executor,
         MemoryExecutor, Result,
     };
     use std::sync::{Arc, Mutex};
@@ -268,46 +270,36 @@ mod test {
     fn memory_executor_mutex_arg() {
         let mut executor = MemoryExecutor::new();
 
-        let task = |args: &[Arg]| {
-            // downcast your args
-            if let (Some(arg1), Some(_arg2)) = (
-                args[0].0.downcast_ref::<Arc<Mutex<String>>>(),
-                args[1].0.downcast_ref::<u32>(),
-            ) {
-                // execute your tasks logic here
-                let mut arg = arg1.lock().expect("poisoned mutex");
-                *arg = "new".to_string();
-            }
+        let task = |(arg1, _): &(Arc<Mutex<&str>>, u32)| {
+            let mut arg = arg1.lock().expect("poisoned mutex");
+            *arg = "new";
 
-            // task closures should return anyhow::Result<()>
+            // task closures should return anyhow::Result<R>
             Ok(())
         };
 
         let clonable_state = Arc::new(Mutex::new("old"));
-        executor
+        let task_id = executor
             .launch(
                 task,
-                vec![Arg(Box::new(clonable_state)), Arg(Box::new(1))],
-                ExecutionSchedule::Every(Duration::from_secs(10)),
+                (clonable_state, 1),
+                ExecutionSchedule::Once(Duration::from_secs(3), false),
                 None,
             )
             .unwrap();
+        executor.join_task(&task_id).unwrap()
     }
 
     #[test]
     fn memory_executor() {
         let mut executor = MemoryExecutor::new();
-        let task = |args: &[Arg]| {
-            let arg1 = args[0].0.downcast_ref::<Arc<Arg1>>().unwrap();
-            let arg2 = args[1].0.downcast_ref::<Arg2>().unwrap().clone();
+        let task = |(arg1, arg2): &(Arc<Arg1>, Arg2)| {
             assert_eq!(arg1.a, 1);
             assert_eq!(arg2.a, 2);
             Ok(())
         };
 
-        fn task1(args: &[Arg]) -> Result<()> {
-            let arg1 = args[0].0.downcast_ref::<Arc<Arg1>>().unwrap();
-            let arg2 = args[1].0.downcast_ref::<Arg2>().unwrap().clone();
+        fn task1((arg1, arg2): &(Arc<Arg1>, Arg2)) -> Result<()> {
             assert_eq!(arg1.a, 10);
             assert_eq!(arg2.a, 20);
             Ok(())
@@ -316,10 +308,7 @@ mod test {
         executor
             .launch(
                 task,
-                vec![
-                    Arg(Box::new(Arc::new(Arg1 { a: 1 }))),
-                    Arg(Box::new(Arg2 { a: 2 })),
-                ],
+                (Arc::new(Arg1 { a: 1 }), Arg2 { a: 2 }),
                 ExecutionSchedule::Once(Duration::from_secs(1), false),
                 None,
             )
@@ -328,10 +317,7 @@ mod test {
         executor
             .launch(
                 task1,
-                vec![
-                    Arg(Box::new(Arc::new(Arg1 { a: 10 }))),
-                    Arg(Box::new(Arg2 { a: 20 })),
-                ],
+                (Arc::new(Arg1 { a: 10 }), Arg2 { a: 20 }),
                 ExecutionSchedule::Once(Duration::from_secs(2), false),
                 None,
             )
@@ -342,29 +328,25 @@ mod test {
     #[tokio::test]
     async fn async_memory_executor() {
         let mut executor = AsyncMemoryExecutor::new();
-        fn task1(args: &[Arg]) -> BoxPinnedFuture<'_, Result<String>> {
+        fn task1((arg1, arg2): &(Arc<Arg1>, Arg2)) -> BoxPinnedFuture<'_> {
             Box::pin(async {
-                let arg1 = args[0].0.downcast_ref::<Arc<Arg1>>().unwrap();
-                let arg2 = args[1].0.downcast_ref::<Arg2>().unwrap().clone();
+                tokio::time::sleep(Duration::from_secs(2)).await;
                 assert_eq!(arg1.a, 10);
                 assert_eq!(arg2.a, 20);
-                Ok("yes".to_string())
+                Ok(())
             })
         }
 
-        executor
+        let task_id = executor
             .launch(
                 task1,
-                vec![
-                    Arg(Box::new(Arc::new(Arg1 { a: 10 }))),
-                    Arg(Box::new(Arg2 { a: 20 })),
-                ],
+                (Arc::new(Arg1 { a: 10 }), Arg2 { a: 20 }),
                 ExecutionSchedule::Once(Duration::from_secs(2), false),
                 None,
             )
             .await
             .unwrap();
 
-        executor.join().await.unwrap();
+        executor.join_task(&task_id).await.unwrap();
     }
 }
