@@ -5,7 +5,7 @@
 add this to your Cargo.toml dependencies
 
 ```toml
-rasks = "0.2.0"
+rasks = "0.3.2"
 ```
 
 # Usage
