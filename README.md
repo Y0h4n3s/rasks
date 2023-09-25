@@ -12,7 +12,8 @@ rasks = "0.2.0"
 
 ```rust
 use rasks::{ExecutionSchedule, Executor, MemoryExecutor};
-
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 pub struct Arg1 {
     pub a: String,
@@ -21,10 +22,10 @@ pub struct Arg1 {
 fn main() {
     let mut executor = MemoryExecutor::new();
 
-    let task = |(arg1, num): &(Arc<Mutex<&str>>, u32)| {
+    let task = |(arg1, _): &(Arc<Mutex<&str>>, u32)| {
         let mut arg = arg1.lock().expect("poisoned mutex");
         *arg = "new";
-
+        println!("Running @ {:?}", Instant::now());
         // task closures should return anyhow::Result<()>
         Ok(())
     };
@@ -45,8 +46,19 @@ fn main() {
 ## Async
 If your app is running on the tokio runtime you can use the async executor
 ```rust
-use rasks::{BoxPinnedFuture, ExecutionSchedule, AsyncExecutor, AsyncMemoryExecutor, Result};
+use rasks::{BoxPinnedFuture, ExecutionSchedule, AsyncExecutor, AsyncMemoryExecutor};
+use std::time::Duration;
+use std::sync::Arc;
 
+#[derive(Clone)]
+pub struct Arg1 {
+    pub a: i32,
+}
+
+
+pub struct Arg2 {
+    pub a: i32,
+}
 #[tokio::main]
 async fn main() {
     let mut executor = AsyncMemoryExecutor::new();
@@ -70,6 +82,7 @@ async fn main() {
         .unwrap();
 
     executor.join_task(&task_id).await.unwrap();
+    println!("Done");
 
 }
 ```
