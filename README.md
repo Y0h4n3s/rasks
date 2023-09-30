@@ -1,13 +1,5 @@
 # Rasks
 
-## Installation
-
-add this to your Cargo.toml dependencies
-
-```toml
-rasks = "0.3.2"
-```
-
 # Usage
 
 ```rust

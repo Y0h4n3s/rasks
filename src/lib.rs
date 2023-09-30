@@ -58,10 +58,7 @@ pub trait AsyncExecutor {
     where
         A: Send + Sync + 'static,
 
-        T: Fn(&A) -> Pin<Box<dyn Future<Output = Result<()>> + Send + Sync + '_>>
-            + Send
-            + Sync
-            + 'static;
+        T: Fn(&A) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> + Send + Sync + 'static;
 
     async fn join_task(&mut self, task_id: &str) -> Result<()>;
     async fn join(self) -> Result<()>;
@@ -188,10 +185,7 @@ impl AsyncExecutor for AsyncMemoryExecutor {
     ) -> Result<String>
     where
         A: Send + Sync + 'static,
-        T: Fn(&A) -> Pin<Box<dyn Future<Output = Result<()>> + Send + Sync + '_>>
-            + Send
-            + Sync
-            + 'static,
+        T: Fn(&A) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> + Send + Sync + 'static,
     {
         let task_id = if let Some(id) = id {
             if self.tasks.contains_key(id) {
@@ -245,7 +239,7 @@ impl AsyncExecutor for AsyncMemoryExecutor {
     }
 }
 
-pub type BoxPinnedFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + Sync + 'a>>;
+pub type BoxPinnedFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
 #[cfg(test)]
 mod test {
