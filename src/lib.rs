@@ -6,6 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 use anyhow::Result;
+use log::debug;
 
 pub enum ExecutionSchedule {
     Every(Duration),
@@ -143,12 +144,15 @@ impl Executor for MemoryExecutor {
             }
             id
         };
+        let id = task_id.clone();
         self.tasks.insert(
             task_id.clone(),
             thread::spawn(move || {
                 let mut schedule = schedule;
                 while schedule.next_tick().is_ok() {
-                    task(&args)?;
+                    if let Err(e) = task(&args) {
+                        debug!("Error in task {}: {:?}", id.clone(), e);
+                    }
                 }
                 Ok::<(), anyhow::Error>(())
             }),
@@ -209,12 +213,15 @@ impl AsyncExecutor for AsyncMemoryExecutor {
             id
         };
         let runtime = tokio::runtime::Handle::current();
+        let id = task_id.clone();
         self.tasks.insert(
             task_id.clone(),
             runtime.spawn(async move {
                 let mut schedule = schedule;
                 while schedule.next_tick().is_ok() {
-                    task(&args).await?;
+                    if let Err(e) = task(&args).await {
+                        debug!("Error in task {}: {:?}", id.clone(), e);
+                    }
                 }
                 Ok::<(), anyhow::Error>(())
             }),
